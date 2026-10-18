@@ -256,6 +256,8 @@ struct DisplaySettingsView: View {
     }
 
     private func select(_ tag: String) {
+        // Buttons don't take focus on macOS, so release the emoji field explicitly when leaving Custom.
+        if tag != Self.customTag { customFieldFocused = false }
         withAnimation(Self.selectionAnimation) {
             icon = tag == Self.customTag ? customEmoji : tag
         }
@@ -350,6 +352,13 @@ struct DisplaySettingsView: View {
             .multilineTextAlignment(.center)
             .focused($customFieldFocused)
             .frame(width: Self.cardIconSize, height: Self.cardIconSize)
+            // Nearly invisible so its insertion point and selection highlight never show, but still
+            // clickable and still the target for the emoji picker. The emoji itself is drawn on top.
+            .opacity(0.02)
+            .overlay {
+                DisplayIconView(emoji: customEmoji, size: Self.cardIconSize)
+                    .allowsHitTesting(false)
+            }
             .help("Custom emoji")
             .onChange(of: customFieldFocused) { _, focused in
                 if focused { select(Self.customTag) }
@@ -360,6 +369,7 @@ struct DisplaySettingsView: View {
                 if let picked = emoji.first(where: { $0 != customEmoji }) {
                     customEmoji = picked
                     select(Self.customTag)
+                    customFieldFocused = false
                 }
                 if customFieldText != customEmoji { customFieldText = customEmoji }
             }
