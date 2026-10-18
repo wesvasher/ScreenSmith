@@ -4,7 +4,7 @@ A macOS menu bar app for quickly switching display resolutions, including Retina
 
 ▶️ [Watch the ScreenSmith demo on YouTube](https://youtu.be/ZIteqB0Rkoo)
 
-![The ScreenSmith menu, showing three displays with their resolutions and a display's Retina and Standard resolution submenus](Images/screenshot.png)
+![ScreenSmith's menu, showing three displays with their resolutions and a display's resolution and rotation options, next to the Settings window with a display's nickname, icon, current mode, rotation and details](Images/screenshot.png)
 
 ## Download
 
