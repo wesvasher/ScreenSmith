@@ -43,6 +43,16 @@ mv build/.build-started "$STAMP"
 # Quit the running copy (whichever build it came from) and start the fresh one.
 pkill -x ScreenSmith
 for _ in $(seq 1 20); do pgrep -x ScreenSmith > /dev/null || break; sleep 0.25; done
-open "$APP"
+# Launch Services occasionally refuses (error -600) while the old copy is still shutting down, so retry.
+for _ in 1 2 3; do
+    open "$APP" 2>/dev/null
+    sleep 1
+    pgrep -x ScreenSmith > /dev/null && break
+done
+
+if ! pgrep -x ScreenSmith > /dev/null; then
+    jq -n '{systemMessage: "ScreenSmith rebuilt but failed to launch; run scripts/dev-run.sh --force"}'
+    exit 0
+fi
 
 jq -n '{systemMessage: "ScreenSmith rebuilt and relaunched"}'
