@@ -49,8 +49,7 @@ struct ScreenSmithApp: App {
             
             Group {
                 Toggle("High Refresh Only", isOn: $showOnlyHighRefresh)
-                Toggle("Start at Login", isOn: $startAtLogin)
-                    .onChange(of: startAtLogin) { _, n in toggleLoginItem(enabled: n) }
+                Toggle("Start at Login", isOn: Binding(get: { startAtLogin }, set: setLoginItem))
                 
                 Button("Open System Display Settings") {
                     if let url = URL(string: "x-apple.systempreferences:com.apple.Displays-Settings.extension") {
@@ -123,9 +122,18 @@ struct ScreenSmithApp: App {
         }
     }
     
-    private func toggleLoginItem(enabled: Bool) {
+    private func setLoginItem(enabled: Bool) {
         let service = SMAppService.mainApp
-        try? (enabled ? service.register() : service.unregister())
+        do {
+            try (enabled ? service.register() : service.unregister())
+        } catch {
+            NSLog("ScreenSmith: failed to update login item: \(error)")
+        }
+        // Show what macOS actually did, not what was requested.
+        startAtLogin = service.status == .enabled
+        if enabled && service.status == .requiresApproval {
+            SMAppService.openSystemSettingsLoginItems()
+        }
     }
     
     init() { _startAtLogin = State(initialValue: SMAppService.mainApp.status == .enabled) }

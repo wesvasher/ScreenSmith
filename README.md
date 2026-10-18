@@ -1,1 +1,3 @@
-![Header](https://github.com/wesvasher/ScreenSmith/blob/main/Images/Github/header-1.png?raw=true)
+# ScreenSmith
+
+A macOS menu bar app for quickly switching display resolutions, including Retina (HiDPI) modes, on every connected monitor.
