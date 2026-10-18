@@ -18,6 +18,8 @@ struct ScreenSmithApp: App {
                 let displayName = manager.getDisplayName(for: displayID)
                 let displayTitle = "\(manager.icon(for: displayID)) \(displayName)"
                 let current = manager.getCurrentMode(for: displayID)
+                let notchAspect = manager.notchPanelAspect(for: displayID)
+                let nativeSize = manager.nativePixelSize(for: displayID)
                 let allModes = manager.getModes(for: displayID)
 
                 Menu {
@@ -30,13 +32,13 @@ struct ScreenSmithApp: App {
                     let standardModes = filtered.filter { !$0.isHiDPI }
 
                     Menu {
-                        renderModeList(retinaModes, displayID: displayID, current: current)
+                        renderModeGroups(retinaModes, displayID: displayID, current: current, notchAspect: notchAspect, nativeSize: nativeSize)
                     } label: {
                         Label("Retina Resolutions", image: DisplayMode.iconName(hiDPI: true))
                             .labelStyle(.titleAndIcon)
                     }
                     Menu {
-                        renderModeList(standardModes, displayID: displayID, current: current)
+                        renderModeGroups(standardModes, displayID: displayID, current: current, notchAspect: notchAspect, nativeSize: nativeSize)
                     } label: {
                         Label("Standard Resolutions", image: DisplayMode.iconName(hiDPI: false))
                             .labelStyle(.titleAndIcon)
@@ -117,7 +119,22 @@ struct ScreenSmithApp: App {
     }
 
     @ViewBuilder
-    private func renderModeList(_ modes: [DisplayMode], displayID: CGDirectDisplayID, current: DisplayMode?) -> some View {
+    /// On a notched panel, splits modes into those that use the area around the notch and those letterboxed below it.
+    private func renderModeGroups(_ modes: [DisplayMode], displayID: CGDirectDisplayID, current: DisplayMode?, notchAspect: Double?, nativeSize: PixelSize?) -> some View {
+        if let notchAspect {
+            Section("Full panel (notch)") {
+                renderModeList(modes.filter { $0.hasAspect(notchAspect) }, displayID: displayID, current: current, nativeSize: nativeSize)
+            }
+            Section("Below notch (no notch)") {
+                renderModeList(modes.filter { !$0.hasAspect(notchAspect) }, displayID: displayID, current: current, nativeSize: nativeSize)
+            }
+        } else {
+            renderModeList(modes, displayID: displayID, current: current, nativeSize: nativeSize)
+        }
+    }
+
+    @ViewBuilder
+    private func renderModeList(_ modes: [DisplayMode], displayID: CGDirectDisplayID, current: DisplayMode?, nativeSize: PixelSize?) -> some View {
         if modes.isEmpty {
             Text(minimumRefreshRate > 0 ? "No resolutions at \(minimumRefreshRate)Hz or above" : "No resolutions")
         }
@@ -130,7 +147,8 @@ struct ScreenSmithApp: App {
                                modeObj.refreshRate.rounded() == current?.refreshRate.rounded() &&
                                modeObj.isHiDPI == current?.isHiDPI
 
-                Label(isActive ? "✓ \(modeObj.label)" : modeObj.label, image: modeObj.iconName)
+                let title = modeObj.menuLabel(nativeSize: nativeSize)
+                Label(isActive ? "✓ \(title)" : title, image: modeObj.iconName)
                     .labelStyle(.titleAndIcon)
             }
         }
