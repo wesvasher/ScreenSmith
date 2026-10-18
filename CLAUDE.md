@@ -24,6 +24,10 @@ Add `CODE_SIGNING_ALLOWED=NO` for a quick compile check without signing. To run 
 
 `scripts/dev-run.sh` builds a signed Debug copy into `build/DerivedData` and relaunches it, but only if files under `ScreenSmith/` or the project changed since the last successful build (`--force` always rebuilds). A Stop hook in `.claude/settings.json` runs it at the end of every Claude turn. A build failure exits 2, so the compiler errors come back to Claude to fix. Don't launch the app another way during a session; the hook already does it.
 
+## Releasing
+
+`scripts/make-dmg.sh` builds a universal (arm64 + x86_64) Release copy into `build/release` and packages `build/ScreenSmith-<version>.dmg` (the app plus an Applications link). The app is ad-hoc signed and not notarized, because there's no paid Apple Developer account, so users approve it via Privacy & Security › Open Anyway; the README and release notes say so. `--publish` also creates GitHub release `v<version>` with the DMG attached, after checking the tree is clean and matches `origin/main`. The version is `MARKETING_VERSION` in the Xcode project; bump it before each release. Build with `-destination "generic/platform=macOS"`, otherwise xcodebuild builds only this Mac's architecture.
+
 ## Project settings to know
 
 - Deployment target is **macOS 26.1**, so new macOS APIs can be used freely.
