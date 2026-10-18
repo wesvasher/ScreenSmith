@@ -17,7 +17,9 @@ There is no test target.
 xcodebuild -project ScreenSmith.xcodeproj -scheme ScreenSmith -configuration Debug build
 ```
 
-Add `CODE_SIGNING_ALLOWED=NO` for a quick compile check without signing. To run it for real, open it in Xcode (team `YBN8GSZ6V8`), because login items and the sandbox need a signed build.
+Add `CODE_SIGNING_ALLOWED=NO` for a quick compile check without signing. To run it for real, use a signed build (team `YBN8GSZ6V8`), because login items and the sandbox need one.
+
+`scripts/dev-run.sh` builds a signed Debug copy into `build/DerivedData` and relaunches it, but only if files under `ScreenSmith/` or the project changed since the last successful build (`--force` always rebuilds). A Stop hook in `.claude/settings.json` runs it at the end of every Claude turn. A build failure exits 2, so the compiler errors come back to Claude to fix. Don't launch the app another way during a session; the hook already does it.
 
 ## Project settings to know
 
