@@ -23,11 +23,12 @@ struct DisplayMode: Identifiable, Hashable {
 
     var sizeLabel: String { "\(width) x \(height)" }
 
-    /// SF Symbol for the mode's pixel density: a dense grid for HiDPI, a sparse one for standard.
-    var symbolName: String { DisplayMode.symbolName(hiDPI: isHiDPI) }
+    /// Asset-catalog icon for the mode's pixel density: a smooth shape for HiDPI, a pixelated one for standard.
+    /// The catalog also has solid-disc (density.circle.*) and curve (density.curve.*) pairs to swap in.
+    var iconName: String { DisplayMode.iconName(hiDPI: isHiDPI) }
 
-    static func symbolName(hiDPI: Bool) -> String {
-        hiDPI ? "square.grid.3x3.fill" : "square.grid.2x2"
+    static func iconName(hiDPI: Bool) -> String {
+        hiDPI ? "density.ring.hidpi" : "density.ring.standard"
     }
 
     var label: String {
@@ -43,12 +44,16 @@ class DisplayManager: ObservableObject {
     @Published var displays: [CGDirectDisplayID] = []
     /// Custom names keyed by `persistentKey(for:)`.
     @Published var customNames: [String: String] = [:]
+    /// Sidebar emoji keyed by `persistentKey(for:)`; displays without one get a default.
+    @Published var iconChoices: [String: String] = [:]
 
     private let namesKey = "ScreenSmithCustomNames"
+    private let iconsKey = "ScreenSmithDisplayIcons"
     private var screenChangeObserver: AnyCancellable?
 
     init() {
         loadCustomNames()
+        loadIconChoices()
         updateDisplayList()
 
         // Pick up monitors being connected, disconnected, or reconfigured.
@@ -69,7 +74,7 @@ class DisplayManager: ObservableObject {
 
     /// Display IDs can change across reboots and reconnects, so names are stored
     /// against the monitor's hardware identity instead.
-    private func persistentKey(for displayID: CGDirectDisplayID) -> String {
+    func persistentKey(for displayID: CGDirectDisplayID) -> String {
         let vendor = CGDisplayVendorNumber(displayID)
         let model = CGDisplayModelNumber(displayID)
         let serial = CGDisplaySerialNumber(displayID)
@@ -79,8 +84,35 @@ class DisplayManager: ObservableObject {
     }
 
     func getDisplayName(for displayID: CGDirectDisplayID) -> String {
-        if let custom = customNames[persistentKey(for: displayID)] { return custom }
-        return CGDisplayIsMain(displayID) != 0 ? "Main Display" : "External Display (\(displayID))"
+        customName(for: displayID) ?? defaultName(for: displayID)
+    }
+
+    func customName(for displayID: CGDirectDisplayID) -> String? {
+        customNames[persistentKey(for: displayID)]
+    }
+
+    func defaultName(for displayID: CGDirectDisplayID) -> String {
+        CGDisplayIsMain(displayID) != 0 ? "Main Display" : "External Display (\(displayID))"
+    }
+
+    /// The display's sidebar emoji; built-in screens default to a laptop, others to a monitor.
+    func icon(for displayID: CGDirectDisplayID) -> String {
+        iconChoices[persistentKey(for: displayID)]
+            ?? (CGDisplayIsBuiltin(displayID) != 0 ? DisplayIcon.laptop : DisplayIcon.desktop)
+    }
+
+    func setIcon(_ emoji: String, for displayID: CGDirectDisplayID) {
+        iconChoices[persistentKey(for: displayID)] = emoji
+        UserDefaults.standard.set(iconChoices, forKey: iconsKey)
+    }
+
+    private func loadIconChoices() {
+        guard let saved = UserDefaults.standard.dictionary(forKey: iconsKey) as? [String: String] else { return }
+        // Earlier builds stored names like "laptop" (and "custom" for an image, which is no longer supported).
+        iconChoices = saved.compactMapValues { value in
+            if let emoji = DisplayIcon.legacyNames[value] { return emoji }
+            return value == "custom" ? nil : value
+        }
     }
 
     func saveCustomName(_ name: String, for displayID: CGDirectDisplayID) {
