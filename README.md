@@ -2,6 +2,8 @@
 
 A macOS menu bar app for quickly switching display resolutions, including Retina (HiDPI) modes, on every connected monitor.
 
+▶️ [Watch the ScreenSmith demo on YouTube](https://youtu.be/ZIteqB0Rkoo)
+
 ## Download
 
 Get the latest **ScreenSmith-*.dmg** from the [Releases page](https://github.com/wesvasher/ScreenSmith/releases/latest). Requires macOS 26.1 or later, on Apple silicon or Intel.
