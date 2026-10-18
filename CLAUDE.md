@@ -27,7 +27,7 @@ Add `CODE_SIGNING_ALLOWED=NO` for a quick compile check without signing. To run 
 
 ## Releasing
 
-`scripts/make-dmg.sh` builds a universal (arm64 + x86_64) Release copy into `build/release` and packages `build/ScreenSmith-<version>.dmg` (the app plus an Applications link). The app is ad-hoc signed and not notarized, because there's no paid Apple Developer account, so users approve it via Privacy & Security › Open Anyway; the README and release notes say so. `--publish` also creates GitHub release `v<version>` with the DMG attached, after checking the tree is clean and matches `origin/main`. The version is `MARKETING_VERSION` in the Xcode project; bump it before each release. Build with `-destination "generic/platform=macOS"`, otherwise xcodebuild builds only this Mac's architecture.
+`scripts/make-dmg.sh` builds a universal (arm64 + x86_64) Release copy into `build/release` and packages `build/ScreenSmith-<version>.dmg` (the app plus an Applications link). The app is ad-hoc signed and not notarized, because there's no paid Apple Developer account, so users approve it via Privacy & Security › Open Anyway; the README and release notes say so. `--publish` also creates GitHub release `v<version>` with the DMG attached, after checking the tree is clean and matches `origin/main`. The version is `MARKETING_VERSION` in the Xcode project. Releases step by .01 (1.01, 1.02, … 1.09, 1.10), so bump it, and `CURRENT_PROJECT_VERSION` (the build number) by 1, before each release. Build with `-destination "generic/platform=macOS"`, otherwise xcodebuild builds only this Mac's architecture.
 
 ## Project settings to know
 
@@ -38,6 +38,8 @@ Add `CODE_SIGNING_ALLOWED=NO` for a quick compile check without signing. To run 
 - The project uses file-system-synchronized groups (`objectVersion = 77`). Adding or deleting a `.swift` file under `ScreenSmith/` needs no `project.pbxproj` edit.
 
 ## Icons
+
+The app icon is `ScreenSmith/ScreenSmith.icon`, an Icon Composer file (one layer, `Assets/Glossy Fullscreen Monitor Icon.png`). `ASSETCATALOG_COMPILER_APPICON_NAME = ScreenSmith` points at it. The build compiles it into `ScreenSmith.icns` plus the Liquid Glass variants in `Assets.car`. Edit it in Icon Composer (Xcode › Open Developer Tool), not by hand.
 
 HiDPI and standard modes are marked with custom template icons in `Assets.xcassets`, not SF Symbols. There are three pairs, each a smooth `.hidpi` shape and a pixelated `.standard` one: `density.curve.*` (an arc vs a pixel staircase, currently used), `density.ring.*` (a bordered circle) and `density.circle.*` (a solid disc). The unused pairs are kept as alternatives. `DisplayMode.iconName(hiDPI:)` is the single place that chooses them. The SVGs are drawn on a 16×16 grid; the pixelated versions use 2×2 cells. SwiftUI menus only show a `Label`'s icon with `.labelStyle(.titleAndIcon)`, and always on the left. Right-aligning icons would mean rebuilding the menu in AppKit, which was considered and declined.
 

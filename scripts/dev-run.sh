@@ -19,7 +19,8 @@ if [ ! -t 0 ]; then
 fi
 
 if [ "${1:-}" != "--force" ] && [ -f "$STAMP" ] && [ -d "$APP" ]; then
-    changed=$(find ScreenSmith ScreenSmith.xcodeproj -type f -newer "$STAMP" -not -path '*/xcuserdata/*' | head -1)
+    # Folders too: deleting a file only updates its folder's modification time.
+    changed=$(find ScreenSmith ScreenSmith.xcodeproj -newer "$STAMP" -not -path '*/xcuserdata/*' | head -1)
     [ -z "$changed" ] && exit 0
 fi
 
