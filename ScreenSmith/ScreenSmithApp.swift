@@ -18,11 +18,7 @@ struct ScreenSmithApp: App {
                 let current = manager.getCurrentMode(for: displayID)
                 let allModes = manager.getModes(for: displayID)
                 
-                let statusIndicator = current?.isHiDPI == true ? "●" : "○"
-                let resolutionText = current != nil ? "(\(statusIndicator) \(current!.width)×\(current!.height))" : ""
-                let combinedLabel = "\(displayName) \(resolutionText)"
-                
-                Menu(combinedLabel) {
+                Menu {
                     Button("Rename...") {
                         newNameText = displayName
                         renamingDisplayID = displayID
@@ -40,15 +36,29 @@ struct ScreenSmithApp: App {
                     let retinaModes = filtered.filter { $0.isHiDPI }
                     let standardModes = filtered.filter { !$0.isHiDPI }
                     
-                    Menu("Retina Resolutions") { renderModeList(retinaModes, displayID: displayID, current: current) }
-                    Menu("Standard Resolutions") { renderModeList(standardModes, displayID: displayID, current: current) }
+                    Menu {
+                        renderModeList(retinaModes, displayID: displayID, current: current)
+                    } label: {
+                        Label("Retina Resolutions", systemImage: DisplayMode.symbolName(hiDPI: true))
+                    }
+                    Menu {
+                        renderModeList(standardModes, displayID: displayID, current: current)
+                    } label: {
+                        Label("Standard Resolutions", systemImage: DisplayMode.symbolName(hiDPI: false))
+                    }
+                } label: {
+                    if let cur = current {
+                        Label("\(displayName) (\(cur.width)×\(cur.height))", systemImage: cur.symbolName)
+                    } else {
+                        Text(displayName)
+                    }
                 }
             }
             
             Divider()
             
             Group {
-                Toggle("High Refresh Only", isOn: $showOnlyHighRefresh)
+                Toggle("Hide refresh rates below 60Hz", isOn: $showOnlyHighRefresh)
                 Toggle("Start at Login", isOn: Binding(get: { startAtLogin }, set: setLoginItem))
                 
                 Button("Open System Display Settings") {
@@ -117,7 +127,7 @@ struct ScreenSmithApp: App {
                                modeObj.refreshRate.rounded() == current?.refreshRate.rounded() &&
                                modeObj.isHiDPI == current?.isHiDPI
                 
-                Text(isActive ? "✓ \(modeObj.label)" : modeObj.label)
+                Label(isActive ? "✓ \(modeObj.label)" : modeObj.label, systemImage: modeObj.symbolName)
             }
         }
     }

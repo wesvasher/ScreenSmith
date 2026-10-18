@@ -23,10 +23,16 @@ struct DisplayMode: Identifiable, Hashable {
 
     var sizeLabel: String { "\(width) x \(height)" }
 
+    /// SF Symbol for the mode's pixel density: a dense grid for HiDPI, a sparse one for standard.
+    var symbolName: String { DisplayMode.symbolName(hiDPI: isHiDPI) }
+
+    static func symbolName(hiDPI: Bool) -> String {
+        hiDPI ? "square.grid.3x3.fill" : "square.grid.2x2"
+    }
+
     var label: String {
-        let indicator = isHiDPI ? "●" : "○"
         let roundedRate = Int(refreshRate.rounded())
-        return "\(indicator) \(width) x \(height) @ \(roundedRate)Hz"
+        return "\(width) x \(height) @ \(roundedRate)Hz"
     }
 
     static func == (lhs: DisplayMode, rhs: DisplayMode) -> Bool { lhs.id == rhs.id }
