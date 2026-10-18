@@ -24,11 +24,11 @@ struct DisplayMode: Identifiable, Hashable {
     var sizeLabel: String { "\(width) x \(height)" }
 
     /// Asset-catalog icon for the mode's pixel density: a smooth shape for HiDPI, a pixelated one for standard.
-    /// The catalog also has solid-disc (density.circle.*) and curve (density.curve.*) pairs to swap in.
+    /// The catalog also has ring (density.ring.*) and solid-disc (density.circle.*) pairs to swap in.
     var iconName: String { DisplayMode.iconName(hiDPI: isHiDPI) }
 
     static func iconName(hiDPI: Bool) -> String {
-        hiDPI ? "density.ring.hidpi" : "density.ring.standard"
+        hiDPI ? "density.curve.hidpi" : "density.curve.standard"
     }
 
     var label: String {
@@ -46,6 +46,8 @@ class DisplayManager: ObservableObject {
     @Published var customNames: [String: String] = [:]
     /// Sidebar emoji keyed by `persistentKey(for:)`; displays without one get a default.
     @Published var iconChoices: [String: String] = [:]
+    /// Displays MonitorPanel says can be rotated; see `refreshRotationSupport()` in Rotation.swift.
+    @Published var rotatableDisplays: Set<CGDirectDisplayID> = []
 
     private let namesKey = "ScreenSmithCustomNames"
     private let iconsKey = "ScreenSmithDisplayIcons"
@@ -63,13 +65,14 @@ class DisplayManager: ObservableObject {
             .sink { [weak self] _ in self?.updateDisplayList() }
     }
 
-    private func updateDisplayList() {
+    func updateDisplayList() {
         var displayCount: UInt32 = 0
         CGGetActiveDisplayList(0, nil, &displayCount)
         var displayIDs = [CGDirectDisplayID](repeating: 0, count: Int(displayCount))
         CGGetActiveDisplayList(displayCount, &displayIDs, &displayCount)
         self.displays = displayIDs
         migrateLegacyNames()
+        refreshRotationSupport()
     }
 
     /// Display IDs can change across reboots and reconnects, so names are stored
@@ -171,5 +174,33 @@ class DisplayManager: ObservableObject {
         if CGDisplaySetDisplayMode(displayID, mode, nil) == .success {
             updateDisplayList()
         }
+    }
+
+    /// A display mirroring another one shares its position, so it can't become main on its own.
+    func isMirroring(_ displayID: CGDirectDisplayID) -> Bool {
+        CGDisplayMirrorsDisplay(displayID) != kCGNullDirectDisplay
+    }
+
+    /// Makes the display the main one (menu bar, and the Dock unless it's been moved) the way System Settings
+    /// does: macOS treats the display at the global origin as main, so move this one to (0, 0) and shift every
+    /// other display by the same amount, which keeps the arrangement unchanged.
+    @discardableResult
+    func makeMainDisplay(_ displayID: CGDirectDisplayID) -> Bool {
+        guard CGDisplayIsMain(displayID) == 0 else { return true }
+        guard !isMirroring(displayID) else { return false }
+        let newOrigin = CGDisplayBounds(displayID).origin
+
+        var config: CGDisplayConfigRef?
+        guard CGBeginDisplayConfiguration(&config) == .success, let config else { return false }
+        for id in displays where !isMirroring(id) {
+            let origin = CGDisplayBounds(id).origin
+            CGConfigureDisplayOrigin(config, id, Int32(origin.x - newOrigin.x), Int32(origin.y - newOrigin.y))
+        }
+        guard CGCompleteDisplayConfiguration(config, .permanently) == .success else {
+            CGCancelDisplayConfiguration(config)
+            return false
+        }
+        updateDisplayList()
+        return true
     }
 }

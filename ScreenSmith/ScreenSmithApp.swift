@@ -43,6 +43,18 @@ struct ScreenSmithApp: App {
                         Label("Standard Resolutions", image: DisplayMode.iconName(hiDPI: false))
                             .labelStyle(.titleAndIcon)
                     }
+
+                    if manager.canRotate(displayID) {
+                        let currentRotation = manager.rotation(for: displayID)
+                        Section("Rotation") {
+                            ForEach(DisplayRotation.options, id: \.self) { degrees in
+                                let title = DisplayRotation.title(for: degrees)
+                                Button(degrees == currentRotation ? "✓ \(title)" : title) {
+                                    manager.setRotation(degrees, for: displayID)
+                                }
+                            }
+                        }
+                    }
                 } label: {
                     if let cur = current {
                         Label("\(displayTitle) (\(cur.width)×\(cur.height) @ \(Int(cur.refreshRate.rounded()))Hz)", image: cur.iconName)

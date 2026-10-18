@@ -1,7 +1,7 @@
 import AppKit
 import Combine
 
-/// One display's resolution within a preset.
+/// One display's resolution and rotation within a preset.
 struct PresetDisplay: Codable, Identifiable, Hashable {
     /// `DisplayManager.persistentKey(for:)` of the display, so presets survive reboots and reconnects.
     let displayKey: String
@@ -14,11 +14,37 @@ struct PresetDisplay: Codable, Identifiable, Hashable {
     let height: Int
     let refreshRate: Int
     let isHiDPI: Bool
+    /// Degrees (0, 90, 180, 270). Nil in presets saved before rotation was supported; those leave rotation alone.
+    var rotation: Int? = nil
 
     var id: String { displayKey }
 
     var modeDescription: String {
         "\(width) x \(height) @ \(refreshRate)Hz" + (isHiDPI ? " (Retina)" : "")
+    }
+
+    /// Resolution plus rotation when it isn't Standard, e.g. "1440 x 2560 @ 60Hz · 90°".
+    var summary: String {
+        guard let rotation, rotation != 0 else { return modeDescription }
+        return modeDescription + " · " + DisplayRotation.title(for: rotation)
+    }
+}
+
+extension PresetDisplay {
+    init(displayKey: String, displayName: String, icon: String, mode: DisplayMode, rotation: Int?) {
+        self.init(displayKey: displayKey, displayName: displayName, icon: icon, modeID: mode.id,
+                  width: mode.width, height: mode.height, refreshRate: Int(mode.refreshRate.rounded()),
+                  isHiDPI: mode.isHiDPI, rotation: rotation)
+    }
+
+    func replacingMode(with mode: DisplayMode) -> PresetDisplay {
+        PresetDisplay(displayKey: displayKey, displayName: displayName, icon: icon, mode: mode, rotation: rotation)
+    }
+
+    func replacingRotation(with rotation: Int) -> PresetDisplay {
+        var copy = self
+        copy.rotation = rotation
+        return copy
     }
 }
 
@@ -64,7 +90,7 @@ final class PresetStore: ObservableObject {
         let alert = NSAlert()
         alert.messageText = "Save Preset"
         alert.informativeText = "Name this preset. It saves the current resolution of each attached display:\n\n"
-            + displays.map { "\($0.icon) \($0.displayName): \($0.modeDescription)" }.joined(separator: "\n")
+            + displays.map { "\($0.icon) \($0.displayName): \($0.summary)" }.joined(separator: "\n")
         alert.addButton(withTitle: "Save")
         alert.addButton(withTitle: "Cancel")
 
@@ -90,11 +116,8 @@ extension DisplayManager {
             return PresetDisplay(displayKey: persistentKey(for: displayID),
                                  displayName: getDisplayName(for: displayID),
                                  icon: icon(for: displayID),
-                                 modeID: mode.id,
-                                 width: mode.width,
-                                 height: mode.height,
-                                 refreshRate: Int(mode.refreshRate.rounded()),
-                                 isHiDPI: mode.isHiDPI)
+                                 mode: mode,
+                                 rotation: rotation(for: displayID))
         }
     }
 
@@ -107,19 +130,24 @@ extension DisplayManager {
         preset.displays.contains { connectedDisplay(forKey: $0.displayKey) != nil }
     }
 
-    /// True when every display in the preset is attached and already in its saved mode.
+    /// True when every display in the preset is attached and already in its saved mode and rotation.
     func isActive(_ preset: Preset) -> Bool {
         preset.displays.allSatisfy { entry in
             guard let displayID = connectedDisplay(forKey: entry.displayKey) else { return false }
-            return getCurrentMode(for: displayID)?.id == entry.modeID
+            let rotationMatches = entry.rotation.map { $0 == rotation(for: displayID) } ?? true
+            return rotationMatches && getCurrentMode(for: displayID)?.id == entry.modeID
         }
     }
 
-    /// Switches each attached display in the preset to its saved mode; displays that aren't attached are skipped.
+    /// Switches each attached display in the preset to its saved rotation and mode; displays that aren't
+    /// attached are skipped. Rotation goes first so the mode is chosen in the same orientation it was saved in.
     func apply(_ preset: Preset) {
         for entry in preset.displays {
-            guard let displayID = connectedDisplay(forKey: entry.displayKey),
-                  getCurrentMode(for: displayID)?.id != entry.modeID,
+            guard let displayID = connectedDisplay(forKey: entry.displayKey) else { continue }
+            if let rotation = entry.rotation, canRotate(displayID) {
+                setRotation(rotation, for: displayID)
+            }
+            guard getCurrentMode(for: displayID)?.id != entry.modeID,
                   let mode = getModes(for: displayID).first(where: { $0.id == entry.modeID })
             else { continue }
             setResolution(displayID: displayID, mode: mode.mode)

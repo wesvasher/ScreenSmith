@@ -28,7 +28,16 @@ struct SettingsView: View {
                 Section("Displays") {
                     ForEach(manager.displays, id: \.self) { displayID in
                         Label {
-                            Text(manager.getDisplayName(for: displayID))
+                            HStack {
+                                Text(manager.getDisplayName(for: displayID))
+                                if CGDisplayIsMain(displayID) != 0 {
+                                    Spacer()
+                                    Image(systemName: "menubar.rectangle")
+                                        .foregroundStyle(.secondary)
+                                        .help("Main display: the menu bar is on this display")
+                                        .accessibilityLabel("Main display")
+                                }
+                            }
                         } icon: {
                             DisplayIconView(emoji: manager.icon(for: displayID), size: 18)
                         }
@@ -95,8 +104,12 @@ struct PresetsSettingsView: View {
     @EnvironmentObject private var manager: DisplayManager
     @EnvironmentObject private var store: PresetStore
     @State private var presetToDelete: Preset?
-    /// Unapplied name edits by preset ID, so renames work like the display pages: nothing saves until Apply.
+    /// Unapplied edits by preset ID, so this page works like the display pages: nothing saves until Apply.
     @State private var draftNames: [UUID: String] = [:]
+    /// Unapplied resolution changes: preset ID → display key → `DisplayMode.id`.
+    @State private var draftModes: [UUID: [String: String]] = [:]
+    /// Unapplied rotation changes: preset ID → display key → degrees.
+    @State private var draftRotations: [UUID: [String: Int]] = [:]
 
     var body: some View {
         if store.presets.isEmpty {
@@ -114,14 +127,26 @@ struct PresetsSettingsView: View {
                                     .labelsHidden()
                                     .textFieldStyle(.roundedBorder)
                                     .frame(maxWidth: 260)
-                                    .onSubmit(applyNames)
+                                    .onSubmit(applyChanges)
                                     .help("Type a new name, then click Apply Changes")
                             } label: {
                                 Label("Name", systemImage: "pencil")
                             }
                             ForEach(preset.displays) { entry in
                                 LabeledContent(label(for: entry)) {
-                                    Text(entry.modeDescription)
+                                    if let displayID = manager.connectedDisplay(forKey: entry.displayKey) {
+                                        HStack {
+                                            ModePicker(displayID: displayID,
+                                                       selection: modeBinding(for: preset, entry: entry),
+                                                       including: [entry.modeID])
+                                            if manager.canRotate(displayID) {
+                                                RotationPicker(selection: rotationBinding(for: preset, entry: entry))
+                                            }
+                                        }
+                                    } else {
+                                        // Modes can only be listed for attached displays.
+                                        Text(entry.summary)
+                                    }
                                 }
                             }
                             HStack {
@@ -137,7 +162,7 @@ struct PresetsSettingsView: View {
 
                 HStack {
                     Spacer()
-                    Button("Apply Changes", action: applyNames)
+                    Button("Apply Changes", action: applyChanges)
                         .buttonStyle(.borderedProminent)
                         .keyboardShortcut(.defaultAction)
                         .disabled(!hasChanges)
@@ -149,6 +174,8 @@ struct PresetsSettingsView: View {
                                 presenting: presetToDelete) { preset in
                 Button("Delete", role: .destructive) {
                     draftNames[preset.id] = nil
+                    draftModes[preset.id] = nil
+                    draftRotations[preset.id] = nil
                     store.delete(preset)
                 }
             } message: { _ in
@@ -162,19 +189,51 @@ struct PresetsSettingsView: View {
                 set: { draftNames[preset.id] = $0 })
     }
 
+    private func modeBinding(for preset: Preset, entry: PresetDisplay) -> Binding<String> {
+        Binding(get: { draftModes[preset.id]?[entry.displayKey] ?? entry.modeID },
+                set: { draftModes[preset.id, default: [:]][entry.displayKey] = $0 })
+    }
+
+    /// Presets saved before rotation support have no rotation; show them as Standard.
+    private func rotationBinding(for preset: Preset, entry: PresetDisplay) -> Binding<Int> {
+        Binding(get: { draftRotations[preset.id]?[entry.displayKey] ?? entry.rotation ?? 0 },
+                set: { draftRotations[preset.id, default: [:]][entry.displayKey] = $0 })
+    }
+
     private var hasChanges: Bool {
         store.presets.contains { preset in
-            draftNames[preset.id].map { $0 != preset.name } ?? false
+            let nameChanged = draftNames[preset.id].map { $0 != preset.name } ?? false
+            let displayChanged = preset.displays.contains { entry in
+                let modeChanged = draftModes[preset.id]?[entry.displayKey].map { $0 != entry.modeID } ?? false
+                let rotationChanged = draftRotations[preset.id]?[entry.displayKey].map { $0 != (entry.rotation ?? 0) } ?? false
+                return modeChanged || rotationChanged
+            }
+            return nameChanged || displayChanged
         }
     }
 
-    private func applyNames() {
+    private func applyChanges() {
         for index in store.presets.indices {
-            if let draft = draftNames[store.presets[index].id] {
+            let preset = store.presets[index]
+            if let draft = draftNames[preset.id] {
                 store.presets[index].name = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            store.presets[index].displays = preset.displays.map { entry in
+                var updated = entry
+                if let modeID = draftModes[preset.id]?[entry.displayKey], modeID != entry.modeID,
+                   let displayID = manager.connectedDisplay(forKey: entry.displayKey),
+                   let mode = manager.getModes(for: displayID).first(where: { $0.id == modeID }) {
+                    updated = updated.replacingMode(with: mode)
+                }
+                if let rotation = draftRotations[preset.id]?[entry.displayKey], rotation != (entry.rotation ?? 0) {
+                    updated = updated.replacingRotation(with: rotation)
+                }
+                return updated
             }
         }
         draftNames = [:]
+        draftModes = [:]
+        draftRotations = [:]
     }
 
     /// Uses the display's current name and icon when it's attached, so renames show up here too.
@@ -191,6 +250,7 @@ struct DisplaySettingsView: View {
     let displayID: CGDirectDisplayID
 
     @State private var nickname = ""
+    @State private var mainDisplayFailed = false
     @State private var icon = DisplayIcon.desktop
     /// The fourth, user-changeable choice. Starts as 😀 unless the saved icon is already a custom emoji.
     @State private var customEmoji = DisplayIcon.defaultCustom
@@ -221,7 +281,19 @@ struct DisplaySettingsView: View {
                                 HStack {
                                     Text(row.label).foregroundStyle(.secondary)
                                     Spacer()
-                                    Text(row.value).textSelection(.enabled)
+                                    switch row.kind {
+                                    case .currentMode:
+                                        ModePicker(displayID: displayID, selection: currentModeSelection)
+                                    case .rotation:
+                                        RotationPicker(selection: Binding(
+                                            get: { manager.rotation(for: displayID) },
+                                            set: { manager.setRotation($0, for: displayID) }
+                                        ))
+                                    case .mainDisplay:
+                                        mainDisplayControl
+                                    case .text:
+                                        Text(row.value).textSelection(.enabled)
+                                    }
                                 }
                             }
                         }
@@ -243,6 +315,11 @@ struct DisplaySettingsView: View {
             .padding(12)
         }
         .onAppear(perform: load)
+        .alert("Couldn't make this the main display", isPresented: $mainDisplayFailed) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("macOS didn't accept the change. You can set the main display in System Settings › Displays › Arrange by dragging the menu bar.")
+        }
     }
 
     private static let customTag = "custom"
@@ -384,6 +461,34 @@ struct DisplaySettingsView: View {
         }
     }
 
+    /// Switches resolution as soon as a mode is picked, like the menu bar menu; Apply Changes is only for
+    /// the nickname and icon, so Current Mode always shows what the display is really using.
+    private var currentModeSelection: Binding<String> {
+        Binding(
+            get: { manager.getCurrentMode(for: displayID)?.id ?? "" },
+            set: { id in
+                if let mode = manager.getModes(for: displayID).first(where: { $0.id == id }) {
+                    manager.setResolution(displayID: displayID, mode: mode.mode)
+                }
+            }
+        )
+    }
+
+    @ViewBuilder
+    private var mainDisplayControl: some View {
+        if CGDisplayIsMain(displayID) != 0 {
+            Label("Yes, the menu bar is here", systemImage: "menubar.rectangle")
+        } else {
+            Button("Move Menu Bar to This Display") {
+                if !manager.makeMainDisplay(displayID) { mainDisplayFailed = true }
+            }
+            .disabled(manager.isMirroring(displayID))
+            .help(manager.isMirroring(displayID)
+                  ? "This display is mirroring another display, so it can't be the main display on its own."
+                  : "Makes this the main display. The menu bar moves here, and the Dock too unless you've moved it.")
+        }
+    }
+
     private var trimmedNickname: String {
         nickname.trimmingCharacters(in: .whitespacesAndNewlines)
     }
@@ -417,6 +522,51 @@ struct DisplaySettingsView: View {
                 .foregroundStyle(.secondary)
             content()
         }
+    }
+}
+
+/// A popup of a display's resolutions, grouped like the menu (Retina/Standard, split by notch when relevant),
+/// with the same density icons and Native tags. Modes below the refresh cutoff are left out unless the
+/// selection or `including` needs them.
+struct ModePicker: View {
+    @EnvironmentObject private var manager: DisplayManager
+    @AppStorage(RefreshFilter.key) private var minimumRefreshRate = 0
+    let displayID: CGDirectDisplayID
+    @Binding var selection: String
+    var including: Set<String> = []
+
+    var body: some View {
+        let nativeSize = manager.nativePixelSize(for: displayID)
+        Picker("Resolution", selection: $selection) {
+            ForEach(manager.modeGroups(for: displayID, minimumRefreshRate: minimumRefreshRate,
+                                       including: including.union([selection]))) { group in
+                Section(group.title) {
+                    ForEach(group.modes) { mode in
+                        Label(mode.menuLabel(nativeSize: nativeSize), image: mode.iconName)
+                            .labelStyle(.titleAndIcon)
+                            .tag(mode.id)
+                    }
+                }
+            }
+        }
+        .pickerStyle(.menu)
+        .labelsHidden()
+        .fixedSize()
+    }
+}
+
+struct RotationPicker: View {
+    @Binding var selection: Int
+
+    var body: some View {
+        Picker("Rotation", selection: $selection) {
+            ForEach(DisplayRotation.options, id: \.self) { degrees in
+                Text(DisplayRotation.title(for: degrees)).tag(degrees)
+            }
+        }
+        .pickerStyle(.menu)
+        .labelsHidden()
+        .fixedSize()
     }
 }
 

@@ -52,7 +52,18 @@ enum RefreshFilter {
 struct DisplayDetailRow: Identifiable {
     let label: String
     let value: String
+    enum Kind { case text, currentMode, rotation, mainDisplay }
+    /// Rows other than `.text` are shown as controls on the settings page: resolution and rotation pickers,
+    /// and a "Move Menu Bar to This Display" button for Main Display.
+    var kind = Kind.text
     var id: String { label }
+}
+
+/// A titled group of modes for a resolution picker: Retina/Standard, split by notch on notched panels.
+struct ModeGroup: Identifiable {
+    let title: String
+    let modes: [DisplayMode]
+    var id: String { title }
 }
 
 struct PixelSize: Equatable {
@@ -99,8 +110,33 @@ extension DisplayManager {
             ?? modes.map(\.pixelSize).max { $0.width * $0.height < $1.width * $1.height }
         guard let native else { return nil }
         let aspect = Double(native.height) / Double(native.width)
-        // Panels without a notch have every mode in the native shape, so there's nothing to split.
-        return modes.contains { !$0.hasAspect(aspect) } ? aspect : nil
+        // A notched panel is taller than 16:10 (≈0.646 on a 16" MacBook Pro) and also offers 16:10 modes,
+        // which macOS letterboxes below the notch. Checking only for "some mode of another shape" misfired
+        // on a 2020 16" MacBook Pro: its panel is 16:10 but it lists one odd mode (825x525).
+        let isTallerThan16x10 = aspect > Self.sixteenByTen + 0.005
+        return isTallerThan16x10 && modes.contains { $0.hasAspect(Self.sixteenByTen) } ? aspect : nil
+    }
+
+    private static let sixteenByTen = 10.0 / 16.0
+
+    /// The display's modes at or above `minimumRefreshRate`, grouped like the menu. The current mode and any
+    /// `including` mode IDs are always kept, so a picker bound to one of them never shows blank.
+    func modeGroups(for displayID: CGDirectDisplayID, minimumRefreshRate: Int, including: Set<String> = []) -> [ModeGroup] {
+        var kept = including
+        if let current = getCurrentMode(for: displayID) { kept.insert(current.id) }
+        let modes = getModes(for: displayID).filter { Int($0.refreshRate.rounded()) >= minimumRefreshRate || kept.contains($0.id) }
+        let notchAspect = notchPanelAspect(for: displayID)
+        var groups: [ModeGroup] = []
+        for (kind, hiDPI) in [("Retina", true), ("Standard", false)] {
+            let ofKind = modes.filter { $0.isHiDPI == hiDPI }
+            if let notchAspect {
+                groups.append(ModeGroup(title: "\(kind) · Full panel (notch)", modes: ofKind.filter { $0.hasAspect(notchAspect) }))
+                groups.append(ModeGroup(title: "\(kind) · Below notch (no notch)", modes: ofKind.filter { !$0.hasAspect(notchAspect) }))
+            } else {
+                groups.append(ModeGroup(title: kind, modes: ofKind))
+            }
+        }
+        return groups.filter { !$0.modes.isEmpty }
     }
 
     /// Read-only facts shown in the Details section of a display's settings page.
@@ -117,7 +153,13 @@ extension DisplayManager {
 
         var rows = [
             DisplayDetailRow(label: "Model", value: screen?.localizedName ?? "Unknown"),
-            DisplayDetailRow(label: "Current Mode", value: current?.label ?? "Unknown"),
+            DisplayDetailRow(label: "Current Mode", value: current?.label ?? "Unknown", kind: .currentMode),
+        ]
+        if canRotate(displayID) {
+            rows.append(DisplayDetailRow(label: "Rotation", value: DisplayRotation.title(for: rotation(for: displayID)), kind: .rotation))
+        }
+        rows += [
+            DisplayDetailRow(label: "Main Display", value: CGDisplayIsMain(displayID) != 0 ? "Yes" : "No", kind: .mainDisplay),
             DisplayDetailRow(label: "Native Resolution", value: nativePixelSize(for: displayID)?.label ?? "Unknown"),
             DisplayDetailRow(label: "HiDPI", value: current.map { $0.isHiDPI ? "Retina" : "Standard" } ?? "Unknown"),
         ]
