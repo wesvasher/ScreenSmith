@@ -33,6 +33,7 @@ No test target.
 - **Native resolution** comes from `kDisplayModeNativeFlag`, not the largest mode. macOS lists supersampled modes bigger than the panel.
 - **Notch detection:** a built-in panel taller than 16:10 that also offers 16:10 modes. A looser rule misfired on a 2020 16" MacBook Pro.
 - **Rotation** has no public setter. It uses `MPDisplay.setOrientation:` from MonitorPanel, which works in the sandbox. Rotation support is cached when displays change, because creating `MPDisplayMgr` while the menu is built is expensive.
+- **Resolution changes are saved `.permanently`** in a configuration transaction. `CGDisplaySetDisplayMode` reverts when the app quits.
 - **Main display** = the display at the global origin. `makeMainDisplay` shifts all displays in one configuration transaction, like System Settings.
 - **The custom emoji field** must be a real, full-size text field: the system emoji picker types into the focused field, and a 1×1 hidden field didn't work. It's kept at 0.02 opacity with the emoji drawn on top, so its cursor never shows.
 - **Edits:** on the Settings display and preset pages, edits are drafts until Apply Changes. Resolution, rotation and main-display changes on a display's page apply immediately.

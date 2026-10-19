@@ -94,8 +94,13 @@ class DisplayManager: ObservableObject {
         customNames[persistentKey(for: displayID)]
     }
 
+    /// The name macOS gives the display (e.g. "Built-in Retina Display"), or a generic one if it has none.
     func defaultName(for displayID: CGDirectDisplayID) -> String {
-        CGDisplayIsMain(displayID) != 0 ? "Main Display" : "External Display (\(displayID))"
+        let screen = NSScreen.screens.first {
+            ($0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value == displayID
+        }
+        if let name = screen?.localizedName, !name.isEmpty { return name }
+        return CGDisplayIsMain(displayID) != 0 ? "Main Display" : "External Display (\(displayID))"
     }
 
     /// The display's sidebar emoji; built-in screens default to a laptop, others to a monitor.
@@ -170,10 +175,16 @@ class DisplayManager: ObservableObject {
             .filter { seen.insert($0.id).inserted }
     }
 
+    /// Saved permanently, like System Settings. CGDisplaySetDisplayMode would revert when the app quits.
     func setResolution(displayID: CGDirectDisplayID, mode: CGDisplayMode) {
-        if CGDisplaySetDisplayMode(displayID, mode, nil) == .success {
-            updateDisplayList()
+        var config: CGDisplayConfigRef?
+        guard CGBeginDisplayConfiguration(&config) == .success, let config else { return }
+        guard CGConfigureDisplayWithDisplayMode(config, displayID, mode, nil) == .success,
+              CGCompleteDisplayConfiguration(config, .permanently) == .success else {
+            CGCancelDisplayConfiguration(config)
+            return
         }
+        updateDisplayList()
     }
 
     /// A display mirroring another one shares its position, so it can't become main on its own.

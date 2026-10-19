@@ -10,6 +10,7 @@ struct ScreenSmithApp: App {
 
     init() {
         RefreshFilter.migrateLegacySetting()
+        AppAppearance.applyStored()
     }
 
     var body: some Scene {
@@ -87,10 +88,8 @@ struct ScreenSmithApp: App {
                     openSettings(.presets)
                 }
             } label: {
-                Text("Presets \(Text("\(presetStore.presets.count)").bold())")
+                Text("Presets")
             }
-
-            Divider()
 
             Button("Open System Display Settings") {
                 if let url = URL(string: "x-apple.systempreferences:com.apple.Displays-Settings.extension") {

@@ -66,23 +66,160 @@ struct SettingsView: View {
     }
 }
 
+/// Light or dark mode for the whole app (menu and Settings); Auto follows the system.
+enum AppAppearance: String, CaseIterable {
+    case auto, light, dark
+
+    static let key = "appearance"
+
+    var title: String {
+        switch self {
+        case .auto: "Auto"
+        case .light: "Light"
+        case .dark: "Dark"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .auto: "circle.lefthalf.filled"
+        case .light: "sun.max"
+        case .dark: "moon"
+        }
+    }
+
+    func apply() {
+        switch self {
+        case .auto: NSApplication.shared.appearance = nil
+        case .light: NSApplication.shared.appearance = NSAppearance(named: .aqua)
+        case .dark: NSApplication.shared.appearance = NSAppearance(named: .darkAqua)
+        }
+    }
+
+    static func applyStored() {
+        let stored = UserDefaults.standard.string(forKey: key).flatMap { AppAppearance(rawValue: $0) }
+        (stored ?? .auto).apply()
+    }
+}
+
+/// Version details shown at the top of the Settings page.
+enum AppInfo {
+    static let releasesURL = URL(string: "https://github.com/wesvasher/ScreenSmith/releases/latest")!
+
+    static var version: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?"
+    }
+
+    /// When the app was built. Release DMGs are built on release day and copying out of the DMG keeps the date,
+    /// so for a downloaded copy this is the release date; for a Debug build it's the last build.
+    static var releaseDate: Date? {
+        try? Bundle.main.executableURL?.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate
+    }
+
+    static var releaseDateLabel: String {
+        #if DEBUG
+        "Built"
+        #else
+        "Released"
+        #endif
+    }
+}
+
 struct GeneralSettingsView: View {
+    @Environment(\.openURL) private var openURL
     @AppStorage(RefreshFilter.key) private var minimumRefreshRate = 0
+    @AppStorage(AppAppearance.key) private var appearance = AppAppearance.auto
+    /// What the cards show. Kept apart from `appearance` because @AppStorage updates arrive outside the
+    /// animation, so the ring wouldn't slide.
+    @State private var shownAppearance = AppAppearance.auto
+    @Namespace private var appearanceNamespace
     @State private var startAtLogin = SMAppService.mainApp.status == .enabled
 
     var body: some View {
         Form {
-            Picker("Hide refresh rates below", selection: $minimumRefreshRate) {
-                Text("Off").tag(0)
-                Divider()
-                ForEach(RefreshFilter.rates, id: \.self) { rate in
-                    Text("\(rate)Hz").tag(rate)
+            Section {
+                aboutHeader
+            }
+
+            Section("Appearance") {
+                HStack(spacing: 10) {
+                    ForEach(AppAppearance.allCases, id: \.self) { option in
+                        Button {
+                            // Switch the app's appearance once the ring has slid over, since redrawing the
+                            // whole window mid-animation cuts it short.
+                            withAnimation(SelectionCard<EmptyView>.animation) {
+                                shownAppearance = option
+                            } completion: {
+                                appearance = option
+                                option.apply()
+                            }
+                        } label: {
+                            SelectionCard(title: option.title, selected: shownAppearance == option,
+                                          namespace: appearanceNamespace) {
+                                Image(systemName: option.symbol)
+                                    .font(.system(size: 20))
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(option.title)
+                        .accessibilityAddTraits(shownAppearance == option ? .isSelected : [])
+                    }
                 }
             }
-            Toggle("Start at Login", isOn: Binding(get: { startAtLogin }, set: setLoginItem))
+
+            Section {
+                Picker("Hide refresh rates below", selection: $minimumRefreshRate) {
+                    Text("Off").tag(0)
+                    Divider()
+                    ForEach(RefreshFilter.rates, id: \.self) { rate in
+                        Text("\(rate)Hz").tag(rate)
+                    }
+                }
+                Toggle("Start at Login", isOn: Binding(get: { startAtLogin }, set: setLoginItem))
+            }
+
+            Section("Updating") {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("ScreenSmith doesn't update itself. To get the latest version:")
+                    Text("1. Download the DMG from the latest release on GitHub.")
+                    Text("2. Quit ScreenSmith, then drag the new copy into Applications, replacing the old one.")
+                    Text("3. Open it. If macOS blocks it, click Open Anyway in System Settings > Privacy & Security.")
+                    Text("Your presets and display names are kept.")
+                        .foregroundStyle(.secondary)
+                }
+                .fixedSize(horizontal: false, vertical: true)
+                HStack {
+                    Spacer()
+                    Button("Open Releases Page") {
+                        openURL(AppInfo.releasesURL)
+                    }
+                }
+            }
         }
         .formStyle(.grouped)
-        .onAppear { startAtLogin = SMAppService.mainApp.status == .enabled }
+        .onAppear {
+            startAtLogin = SMAppService.mainApp.status == .enabled
+            shownAppearance = appearance
+        }
+    }
+
+    private var aboutHeader: some View {
+        HStack(spacing: 14) {
+            Image(nsImage: NSApplication.shared.applicationIconImage)
+                .resizable()
+                .frame(width: 64, height: 64)
+            VStack(alignment: .leading, spacing: 3) {
+                Text("ScreenSmith").font(.title2.weight(.semibold))
+                Text("Version \(AppInfo.version)")
+                    .foregroundStyle(.secondary)
+                if let date = AppInfo.releaseDate {
+                    Text("\(AppInfo.releaseDateLabel) \(date.formatted(date: .long, time: .omitted))")
+                        .foregroundStyle(.secondary)
+                }
+            }
+            Spacer()
+        }
+        .padding(.vertical, 4)
     }
 
     private func setLoginItem(enabled: Bool) {
@@ -264,11 +401,17 @@ struct DisplaySettingsView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 32) {
                     section("Display Nickname") {
-                        TextField("Display Nickname", text: $nickname,
-                                  prompt: Text(manager.defaultName(for: displayID)))
-                            .labelsHidden()
-                            .textFieldStyle(.roundedBorder)
-                            .onSubmit(apply)
+                        HStack {
+                            TextField("Display Nickname", text: $nickname,
+                                      prompt: Text(manager.defaultName(for: displayID)))
+                                .labelsHidden()
+                                .textFieldStyle(.roundedBorder)
+                                .onSubmit(apply)
+                            Button("Use Suggested Name") {
+                                nickname = manager.defaultName(for: displayID)
+                            }
+                            .disabled(trimmedNickname == manager.defaultName(for: displayID))
+                        }
                     }
 
                     section("Icon Selector") {
@@ -323,9 +466,9 @@ struct DisplaySettingsView: View {
     }
 
     private static let customTag = "custom"
-    private static let cardIconSize: CGFloat = 26
-    private static let cardPadding: CGFloat = 10
-    private static let selectionAnimation = Animation.snappy(duration: 0.25)
+    private static let cardIconSize = SelectionCard<EmptyView>.iconSize
+    private static let cardPadding = SelectionCard<EmptyView>.padding
+    private static let selectionAnimation = SelectionCard<EmptyView>.animation
 
     /// `icon` as a card tag: built-in emoji are their own tags, anything else is the custom card.
     private var selectedTag: String {
@@ -387,37 +530,7 @@ struct DisplaySettingsView: View {
     }
 
     private func iconCard<Icon: View>(tag: String, title: String, @ViewBuilder icon: () -> Icon) -> some View {
-        let selected = selectedTag == tag
-        let shape = RoundedRectangle(cornerRadius: 10, style: .continuous)
-        return VStack(spacing: 4) {
-            icon()
-                .frame(width: Self.cardIconSize, height: Self.cardIconSize)
-            Text(title)
-                .font(.callout)
-                .fontWeight(selected ? .semibold : .regular)
-                .lineLimit(1)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, Self.cardPadding)
-        .background(shape.fill(selected ? AnyShapeStyle(.background) : AnyShapeStyle(.quinary)))
-        .overlay(shape.strokeBorder(.separator, lineWidth: 1))
-        .overlay {
-            // One accent ring that slides between cards as the selection changes.
-            if selected {
-                shape.strokeBorder(Color.accentColor, lineWidth: 2)
-                    .matchedGeometryEffect(id: "selection", in: selectionNamespace)
-            }
-        }
-        .overlay(alignment: .topTrailing) {
-            if selected {
-                Image(systemName: "checkmark.circle.fill")
-                    .font(.system(size: 13))
-                    .foregroundStyle(.white, Color.accentColor)
-                    .padding(5)
-                    .transition(.scale(scale: 0.5).combined(with: .opacity))
-            }
-        }
-        .contentShape(shape)
+        SelectionCard(title: title, selected: selectedTag == tag, namespace: selectionNamespace, icon: icon)
     }
 
     /// The custom emoji is a real text field: the system emoji picker types into whichever field has focus.
@@ -522,6 +635,59 @@ struct DisplaySettingsView: View {
                 .foregroundStyle(.secondary)
             content()
         }
+    }
+}
+
+/// A selectable card with an icon over a title, as in the icon and appearance selectors. Cards sharing a
+/// namespace pass one accent ring between them as the selection changes.
+struct SelectionCard<Icon: View>: View {
+    static var iconSize: CGFloat { 26 }
+    static var padding: CGFloat { 10 }
+    static var animation: Animation { .snappy(duration: 0.25) }
+
+    let title: String
+    let selected: Bool
+    let namespace: Namespace.ID
+    let icon: Icon
+
+    init(title: String, selected: Bool, namespace: Namespace.ID, @ViewBuilder icon: () -> Icon) {
+        self.title = title
+        self.selected = selected
+        self.namespace = namespace
+        self.icon = icon()
+    }
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: 10, style: .continuous)
+        VStack(spacing: 4) {
+            icon
+                .frame(width: Self.iconSize, height: Self.iconSize)
+            Text(title)
+                .font(.callout)
+                .fontWeight(selected ? .semibold : .regular)
+                .lineLimit(1)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, Self.padding)
+        .background(shape.fill(selected ? AnyShapeStyle(.background) : AnyShapeStyle(.quinary)))
+        .overlay(shape.strokeBorder(.separator, lineWidth: 1))
+        .overlay {
+            // One accent ring that slides between cards as the selection changes.
+            if selected {
+                shape.strokeBorder(Color.accentColor, lineWidth: 2)
+                    .matchedGeometryEffect(id: "selection", in: namespace)
+            }
+        }
+        .overlay(alignment: .topTrailing) {
+            if selected {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 13))
+                    .foregroundStyle(.white, Color.accentColor)
+                    .padding(5)
+                    .transition(.scale(scale: 0.5).combined(with: .opacity))
+            }
+        }
+        .contentShape(shape)
     }
 }
 
